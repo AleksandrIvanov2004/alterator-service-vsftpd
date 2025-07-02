@@ -132,7 +132,13 @@ backup_config() {
         chmod 600 "$config_file"
     fi
     
-    cp "$config_file" "${backup_dir}/${config_file##*/}.${timestamp}.${suffix}"
+     if [ -s "$config_file" ]; then
+        cp "$config_file" "${backup_dir}/${config_file##*/}.${timestamp}.${suffix}"
+        echo "Backup created: ${backup_dir}/${config_file##*/}.${timestamp}.${suffix}"
+    else
+        echo "Warning: Config file $config_file is empty. Backup skipped."
+        return 2  
+    fi
 }
 
 read_stdin()
@@ -169,7 +175,12 @@ call_provision() {
     local value=
     local deployment_config_file="/usr/share/alterator-service-vsftpd/deployment-config.json"
     input_json="$(read_stdin)"
-   
+
+    if [ -f "$deployment_config_file" ]; then
+       echo "The service has already been deployed"
+       return 1
+    fi
+        
     keys=$(echo "$input_json" | jq -r 'keys[]')
 
     for key in $keys; do
@@ -204,7 +215,11 @@ call_provision() {
         esac
     done
 
-    backup_config /etc/vsftpd/vsftpd.conf "original"
+    if [ -z "$(find /etc/vsftpd/backups -mindepth 1 -print -quit)" ]; then
+        backup_config /etc/vsftpd/conf "original"
+    else
+        backup_config /etc/vsftpd/vsftpd.conf "original"
+    fi
 
     for setting in "${args[@]}"; do
       key="${setting%=*}"
@@ -215,9 +230,6 @@ call_provision() {
         echo "$key=$value" >> /etc/vsftpd/vsftpd.conf
       fi
     done
-
-    
-    systemctl restart vsftpd || retval=1
     
     if [ $retval -eq 0 ]; then
         echo "VSFTPD successfully configured."
@@ -245,23 +257,17 @@ call_undeploy() {
     local retval=0
     local deployment_config_file="/usr/share/alterator-service-vsftpd/deployment-config.json"
     local backup_dir="/etc/vsftpd/backups"
+    local last_original_backup=""
     
     mapfile -t backups < <(ls -rt "$backup_dir"/vsftpd.conf.* 2>/dev/null)
 
-    local last_original_index=-1
-    for i in "${!backups[@]}"; do
-        if [[ "${backups[i]}" == *.original ]]; then
-            last_original_index=$i
+    for backup in "${backups[@]}"; do
+        if [[ "$backup" == *.original ]]; then
+            last_original_backup="$backup"
         fi
     done
-
-    if [ $last_original_index -gt 0 ]; then
-        previous_backup="${backups[$((last_original_index-1))]}"
-    elif [ ${#backups[@]} -gt 0 ]; then
-        previous_backup="${backups[0]}"
-    else
-        previous_backup=""
-    fi
+   
+    previous_backup="$last_original_backup"
     
     echo "${previous_backup}"
 
@@ -275,7 +281,8 @@ call_undeploy() {
         echo "ERROR: Failed to restore from backup" >&2
         retval=1
     }
-
+    
+    rm -f "$previous_backup" 2>/dev/null
     rm -f "$deployment_config_file" 2>/dev/null
     rm -rf "/usr/share/alterator-service-vsftpd" 2>/dev/null
 
