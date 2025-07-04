@@ -215,19 +215,15 @@ call_provision() {
         esac
     done
 
-    if [ -z "$(find /etc/vsftpd/backups -mindepth 1 -print -quit)" ]; then
-        backup_config /etc/vsftpd/conf "original"
-    else
-        backup_config /etc/vsftpd/vsftpd.conf "original"
-    fi
-
+    backup_config /etc/vsftpd/conf "original"
+   
     for setting in "${args[@]}"; do
       key="${setting%=*}"
       value="${setting#*=}"
-      if grep -q "^$key=" /etc/vsftpd/vsftpd.conf; then
-        sed -i "s/^$key=.*/$key=$value/" /etc/vsftpd/vsftpd.conf
+      if grep -q "^$key=" /etc/vsftpd/conf; then
+        sed -i "s/^$key=.*/$key=$value/" /etc/vsftpd/conf
       else
-        echo "$key=$value" >> /etc/vsftpd/vsftpd.conf
+        echo "$key=$value" >> /etc/vsftpd/conf
       fi
     done
     
@@ -259,7 +255,7 @@ call_undeploy() {
     local backup_dir="/etc/vsftpd/backups"
     local last_original_backup=""
     
-    mapfile -t backups < <(ls -rt "$backup_dir"/vsftpd.conf.* 2>/dev/null)
+    mapfile -t backups < <(ls -rt "$backup_dir"/conf.* 2>/dev/null)
 
     for backup in "${backups[@]}"; do
         if [[ "$backup" == *.original ]]; then
@@ -277,12 +273,11 @@ call_undeploy() {
         retval=1
     }
 
-    cp -f "$previous_backup" /etc/vsftpd/vsftpd.conf || {
+    cp -f "$previous_backup" /etc/vsftpd/conf || {
         echo "ERROR: Failed to restore from backup" >&2
         retval=1
     }
     
-    rm -f "$previous_backup" 2>/dev/null
     rm -f "$deployment_config_file" 2>/dev/null
     rm -rf "/usr/share/alterator-service-vsftpd" 2>/dev/null
 
