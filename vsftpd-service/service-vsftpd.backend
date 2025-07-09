@@ -10,18 +10,16 @@ stdout_bytes = true
 
 
 [methods.Deploy]
-execute = "service-vsftpd -p"
+execute = "service-vsftpd -d"
 action_id = "Deploy"
-stdout_strings = true
 stdin_string = true
 stdout_signal_name = "service_stdout_signal"
 stderr_signal_name = "service_stderr_signal"
 timeout = 600
 
 [methods.Undeploy]
-execute = "service-vsftpd -d"
+execute = "service-vsftpd -u"
 action_id = "Undeploy"
-stdout_strings = true
 stdin_string = true
 stdout_signal_name = "service_stdout_signal"
 stderr_signal_name = "service_stderr_signal"

@@ -20,19 +20,16 @@ Tool for managing Samba Active Directory Domain Controller.
 Options:
   -h, --help          Show this help message and exit.
   -v, --version       Show program's version number and exit.
-  -j, --join          Join an existing domain as a Domain Controller.
-                      (Requires JSON input with join parameters).
-  -d, --demote        Demote this Domain Controller from the domain.
-                      (Requires JSON input with demote parameters).
-  -p, --provision     Provision a new Active Directory domain.
-                      (Requires JSON input with provision parameters).
-  -b, --backup        Backup Samba AD data.
-  -r, --restore       Restore Samba AD data from backup.
+  -u, --undeploy      Undeploy the service and roll back to the settings
+                      that were in place before the deployment
+  -d, --deploy        Deploy the service while preserving previous settings
+  -b, --backup        Backup Vsftpd data.
+  -r, --restore       Restore Vsftpd data from backup.
                       (Requires JSON input with restore parameters).
-  -s, --status        Show the current status of the Samba AD DC deployment.
-  --start             Start the Samba AD DC service.
-  --stop              Stop the Samba AD DC service.
-  --configure         Configure the Samba AD DC service.
+  -s, --status        Show the current status of the Vsftpd deployment.
+  --start             Start the Vsftpd service.
+  --stop              Stop the Vsftpd service.
+  --configure         Configure the Vsftpd service.
                       (Requires JSON input with configuration parameters).
 
 Input for provision, join, demote, restore, and configure modes is expected
@@ -56,8 +53,8 @@ entryfile=/usr/share/alterator/service/service-vsftpd.service
 
 OPTIONS_LIST="help,
               version,
-              demote,
-              provision,
+              undeploy,
+              deploy,
               restore,
               backup,
               status,
@@ -65,7 +62,7 @@ OPTIONS_LIST="help,
               stop,
               configure"
 
-OPTIONS_SHORT_LIST="h,v,d,p,b,r,s"
+OPTIONS_SHORT_LIST="h,v,u,d,b,r,s"
 
 TEMP=$(getopt -n "$PROG_NAME" -o "$OPTIONS_SHORT_LIST" -l "$OPTIONS_LIST" -- "$@")
 eval set -- "$TEMP"
@@ -78,11 +75,11 @@ while :; do
         -v|--version)
             show_version
             ;;
-        -d|--demote)
-            MODE="demote"
+        -u|--undeploy)
+            MODE="undeploy"
             ;;
-        -p|--provision)
-            MODE="provision"
+        -d|--deploy)
+            MODE="deploy"
             ;;
         -r|--restore)
             MODE="restore"
@@ -146,19 +143,9 @@ read_stdin()
     local input_json=
     local retval=0
 
-    if [ -t 0 ]; then
-        echo "No input from stdin"
-        retval=1
-    fi
-
     while read -r line; do
         input_json+="$line"
     done
-
-    if [ -z "$input_json" ]; then
-        echo "Empty input"
-        retval=1
-    fi
 
     echo "$input_json"
     return $retval
@@ -168,7 +155,7 @@ upper() {
     echo -n "$1" | tr '[:lower:]' '[:upper:]'
 }
 
-call_provision() {
+call_deploy() {
     local retval=0
     local args=()
     local keys
@@ -345,8 +332,8 @@ call_restore() {
     tar -xf "$temp_dir/backup.tar" -C "$temp_dir" etc/vsftpd/ 2>/dev/null
   
 
-    if [ ! -f "$temp_dir/etc/vsftpd/vsftpd.conf" ]; then
-        echo "ERROR: Failed to restore vsftpd.conf from backup" >&2
+    if [ ! -f "$temp_dir/etc/vsftpd/conf" ]; then
+        echo "ERROR: Failed to restore conf from backup" >&2
         rm -rf "$temp_dir"
         return 1
     fi
@@ -469,8 +456,8 @@ call_configure() {
 }
 
 case "$MODE" in
-    provision)
-        call_provision || GLOBAL_EXIT=1
+    deploy)
+        call_deploy || GLOBAL_EXIT=1
         ;;
     status)
         call_status 
@@ -490,7 +477,7 @@ case "$MODE" in
     configure)
         call_configure || GLOBAL_EXIT=1
         ;;
-    demote)
+    undeploy)
         call_undeploy || GLOBAL_EXIT=1
         ;;
 esac
