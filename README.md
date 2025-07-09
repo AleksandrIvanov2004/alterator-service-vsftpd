@@ -29,7 +29,7 @@
 При использовании --deploy или --configure скрипт ожидает ввод параметров в формате JSON через стандартный ввод.
 
 Пример JSON для развертывания:
-``````json
+```json
 {
   "anonymous_enable": "true",
   "local_enable": "true",
