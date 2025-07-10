@@ -254,8 +254,7 @@ call_undeploy() {
     
     echo "${previous_backup}"
 
-    systemctl stop vsftpd 2>/dev/null
-    systemctl disable vsftpd 2>/dev/null || {
+    call_stop || {
         echo "WARNING: Failed to disable vsftpd service" >&2
         retval=1
     }
@@ -306,15 +305,24 @@ call_restore() {
         return 1
     fi
 
-    backup_file=$(find "$backup_dir" -name "vsftpd_backup_*.tar.gz" -type f -printf "%T@ %p\n" | sort -n | tail -1 | cut -d' ' -f2-)
-    
-    if [ -z "$backup_file" ]; then
-        echo "ERROR: No backup files found in $backup_dir" >&2
-        return 1
+    # Если передан аргумент — используем его, иначе ищем последний бэкап
+    if [ $# -gt 0 ] && [ -n "$1" ]; then
+        backup_file="$1"
+        if [ ! -f "$backup_file" ]; then
+            echo "ERROR: Specified backup file $backup_file does not exist" >&2
+            return 1
+        fi
+    else
+        backup_file=$(find "$backup_dir" -name "vsftpd_backup_*.tar.gz" -type f -printf "%T@ %p\n" | sort -n | tail -1 | cut -d' ' -f2-)
+        if [ -z "$backup_file" ]; then
+            echo "ERROR: No backup files found in $backup_dir" >&2
+            return 1
+        fi
     fi
 
     echo "Trying to restore from: $backup_file" >&2
 
+    # Остальная часть функции без изменений
     local temp_dir=$(mktemp -d)
     
     if ! gzip -cd "$backup_file" > "$temp_dir/backup.tar" 2>/dev/null; then
@@ -330,7 +338,6 @@ call_restore() {
     fi
 
     tar -xf "$temp_dir/backup.tar" -C "$temp_dir" etc/vsftpd/ 2>/dev/null
-  
 
     if [ ! -f "$temp_dir/etc/vsftpd/conf" ]; then
         echo "ERROR: Failed to restore conf from backup" >&2
@@ -394,8 +401,6 @@ call_configure() {
     local keys
     local value=
     input_json="$(read_stdin)"
-    
-    backup_config /etc/vsftpd/vsftpd.conf "pre_configure"
 
     keys=$(echo "$input_json" | jq -r 'keys[]')
 
@@ -430,6 +435,8 @@ call_configure() {
                 ;;
         esac
     done
+    
+     backup_config /etc/vsftpd/vsftpd.conf "pre_configure"
 
     for setting in "${args[@]}"; do
     key="${setting%=*}"
@@ -441,7 +448,6 @@ call_configure() {
         echo "$key=$value" >> /etc/vsftpd/vsftpd.conf
     fi
     done
-    echo "kd"
     echo "$retval"
 
     systemctl restart vsftpd || {
@@ -451,7 +457,6 @@ call_configure() {
         retval=1
     }
     
-    echo "$retval"
     return $retval
 }
 
@@ -466,7 +471,11 @@ case "$MODE" in
         call_backup || GLOBAL_EXIT=1
         ;;
     restore)
-        call_restore || GLOBAL_EXIT=1
+         if [ $# -ge 2 ] && [ -n "$2" ]; then
+            call_restore "$2" || GLOBAL_EXIT=1
+        else
+            call_restore || GLOBAL_EXIT=1
+        fi
         ;;
     start)
         call_start || GLOBAL_EXIT=1
