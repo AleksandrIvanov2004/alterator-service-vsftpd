@@ -196,6 +196,10 @@ call_deploy() {
                 value=$(get_json_value "$input_json" "$key" ".")
                 [ -n "$value" ] && args+=(pasv_max_port="$value")
                 ;;
+            backup_name)
+                value=$(get_json_value "$input_json" "$key" ".")
+                [ -n "$value" ] && args+=(backup_name="$value")
+                ;;
             *)
                 false
                 ;;
@@ -297,25 +301,32 @@ call_backup() {
 
 call_restore() {
     local backup_dir="/var/backups/vsftpd"
-    local backup_file
+    local backup_file=""
     local retval=0
+    input_json="$(read_stdin)"
 
     if [ ! -d "$backup_dir" ]; then
         echo "ERROR: Backup directory $backup_dir does not exist" >&2
         return 1
     fi
 
-    # Если передан аргумент — используем его, иначе ищем последний бэкап
-    if [ $# -gt 0 ] && [ -n "$1" ]; then
-        backup_file="$1"
-        if [ ! -f "$backup_file" ]; then
-            echo "ERROR: Specified backup file $backup_file does not exist" >&2
-            return 1
-        fi
-    else
+    # Пытаемся получить имя файла из JSON
+    if [ -n "$input_json" ]; then
+        backup_file=$(echo "$input_json" | jq -r '.backup_name // empty' 2>/dev/null)
+    fi
+
+    # Если backup_file не задан, ищем самый свежий бэкап
+    if [ -z "$backup_file" ]; then
+        echo "No backup_name specified, searching for latest backup..." >&2
         backup_file=$(find "$backup_dir" -name "vsftpd_backup_*.tar.gz" -type f -printf "%T@ %p\n" | sort -n | tail -1 | cut -d' ' -f2-)
         if [ -z "$backup_file" ]; then
             echo "ERROR: No backup files found in $backup_dir" >&2
+            return 1
+        fi
+    else
+        # Проверяем существует ли указанный файл бэкапа
+        if [ ! -f "$backup_file" ]; then
+            echo "ERROR: Specified backup file $backup_file does not exist" >&2
             return 1
         fi
     fi
@@ -357,9 +368,9 @@ call_restore() {
     rm -rf "$temp_dir"
     
     if [ $retval -eq 0 ]; then
-        echo "SUCCESS: Configuration partially restored from corrupted backup"
+        echo "SUCCESS: Configuration restored from backup"
     else
-        echo "WARNING: Restored with errors from damaged backup" >&2
+        echo "WARNING: Restored with errors from backup" >&2
     fi
     
     return $retval
@@ -430,6 +441,10 @@ call_configure() {
                 value=$(get_json_value "$input_json" "$key" ".")
                 [ -n "$value" ] && args+=(pasv_max_port="$value")
                 ;;
+            backup_name)
+                value=$(get_json_value "$input_json" "$key" ".")
+                [ -n "$value" ] && args+=(backup_name="$value")
+                ;;
             *)
                 false
                 ;;
@@ -471,11 +486,7 @@ case "$MODE" in
         call_backup || GLOBAL_EXIT=1
         ;;
     restore)
-         if [ $# -ge 2 ] && [ -n "$2" ]; then
-            call_restore "$2" || GLOBAL_EXIT=1
-        else
-            call_restore || GLOBAL_EXIT=1
-        fi
+        call_restore || GLOBAL_EXIT=1
         ;;
     start)
         call_start || GLOBAL_EXIT=1
