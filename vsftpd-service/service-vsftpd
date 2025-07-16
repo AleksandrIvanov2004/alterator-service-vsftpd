@@ -107,7 +107,6 @@ while :; do
     shift
 done
 
-
 get_json_value() {
     local json="$1"
     local key="$2"
@@ -115,12 +114,15 @@ get_json_value() {
     echo "$json" | jq -r --arg k "$key" "$path.[\$k]" 2>/dev/null
 }
 
+# JSON file configuration
 backup_config() {
     local config_file="$1"
     local suffix="$2"
     local backup_dir="/etc/vsftpd/backups"
-    local timestamp=$(date +%Y%m%d%H%M%S)
-    
+    local timestamp=
+    timestamp=$(date +%Y%m%d%H%M%S)
+
+    # Creating a directory for backups
     mkdir -p "$backup_dir"
     
     if [ ! -f "$config_file" ]; then
@@ -129,7 +131,8 @@ backup_config() {
         chmod 600 "$config_file"
     fi
     
-     if [ -s "$config_file" ]; then
+    # Transferring data from conf_file to backup
+    if [ -s "$config_file" ]; then
         cp "$config_file" "${backup_dir}/${config_file##*/}.${timestamp}.${suffix}"
         echo "Backup created: ${backup_dir}/${config_file##*/}.${timestamp}.${suffix}"
     else
@@ -162,14 +165,17 @@ call_deploy() {
     local value=
     local deployment_config_file="/usr/share/alterator-service-vsftpd/deployment-config.json"
     input_json="$(read_stdin)"
-
+    
+    # To prevent re-deployment
     if [ -f "$deployment_config_file" ]; then
        echo "The service has already been deployed"
        return 1
     fi
-        
+    
+    # Reading the parameters
     keys=$(echo "$input_json" | jq -r 'keys[]')
-
+    
+    # Fill the array with parameters
     for key in $keys; do
         case "$key" in
             anonymous_enable)
@@ -196,6 +202,26 @@ call_deploy() {
                 value=$(get_json_value "$input_json" "$key" ".")
                 [ -n "$value" ] && args+=(pasv_max_port="$value")
                 ;;
+            chroot_local_user)
+                value=$(get_json_value "$input_json" "$key" ".")
+                [ "$value" = "true" ] && args+=(chroot_local_user=YES) || args+=(chroot_local_user=NO)
+                ;;
+            allow_writeable_chroot)
+                value=$(get_json_value "$input_json" "$key" ".")
+                [ "$value" = "true" ] && args+=(allow_writeable_chroot=YES) || args+=(allow_writeable_chroot=NO)
+                ;;
+            userlist_enable)
+                value=$(get_json_value "$input_json" "$key" ".")
+                [ "$value" = "true" ] && args+=(userlist_enable=YES) || args+=(userlist_enable=NO)
+                ;;
+            userlist_deny)
+                value=$(get_json_value "$input_json" "$key" ".")
+                [ "$value" = "true" ] && args+=(userlist_deny=YES) || args+=(userlist_deny=NO)
+                ;;
+            ssl_enable)
+                value=$(get_json_value "$input_json" "$key" ".")
+                [ "$value" = "true" ] && args+=(ssl_enable=YES) || args+=(ssl_enable=NO)
+                ;;
             backup_name)
                 value=$(get_json_value "$input_json" "$key" ".")
                 [ -n "$value" ] && args+=(backup_name="$value")
@@ -205,17 +231,19 @@ call_deploy() {
                 ;;
         esac
     done
-
+    
+    # Save backup
     backup_config /etc/vsftpd/conf "original"
-   
+    
+    # change conf file with new parametres
     for setting in "${args[@]}"; do
-      key="${setting%=*}"
-      value="${setting#*=}"
-      if grep -q "^$key=" /etc/vsftpd/conf; then
-        sed -i "s/^$key=.*/$key=$value/" /etc/vsftpd/conf
-      else
-        echo "$key=$value" >> /etc/vsftpd/conf
-      fi
+        key="${setting%=*}"
+        value="${setting#*=}"
+        if grep -q "^$key=" /etc/vsftpd/conf; then
+            sed -i "s/^$key=.*/$key=$value/" /etc/vsftpd/conf
+        else
+            echo "$key=$value" >> /etc/vsftpd/conf
+        fi
     done
     
     if [ $retval -eq 0 ]; then
@@ -224,18 +252,20 @@ call_deploy() {
         echo "ERROR: Failed to configure VSFTPD."
     fi
 
-       mkdir -p "/usr/share/alterator-service-vsftpd"
+    mkdir -p "/usr/share/alterator-service-vsftpd"
 
-   {
-   echo '{'
-   for setting in "${args[@]}"; do
-     key="${setting%=*}"
-     value="${setting#*=}"
-     echo "\"$key\": \"$value\","
-   done
-   echo '"status": "active"'
-   echo '}'
-   } > "$deployment_config_file"
+    {
+    
+    # Fill the deployment congig file
+    echo '{'
+    for setting in "${args[@]}"; do
+        key="${setting%=*}"
+        value="${setting#*=}"
+        echo "\"$key\": \"$value\","
+    done
+    echo '"status": "active"'
+    echo '}'
+    } > "$deployment_config_file"
 
     return $retval
 }
@@ -246,8 +276,10 @@ call_undeploy() {
     local backup_dir="/etc/vsftpd/backups"
     local last_original_backup=""
     
+    # Filling the array with all backups
     mapfile -t backups < <(ls -rt "$backup_dir"/conf.* 2>/dev/null)
-
+    
+    # Select the latest backup file with the suffix .original
     for backup in "${backups[@]}"; do
         if [[ "$backup" == *.original ]]; then
             last_original_backup="$backup"
@@ -262,7 +294,8 @@ call_undeploy() {
         echo "WARNING: Failed to disable vsftpd service" >&2
         retval=1
     }
-
+    
+    # Update the config according to the latest backup
     cp -f "$previous_backup" /etc/vsftpd/conf || {
         echo "ERROR: Failed to restore from backup" >&2
         retval=1
@@ -283,10 +316,13 @@ call_undeploy() {
 call_backup() {
     local retval=0
     local backup_dir="/var/backups/vsftpd"
-    local timestamp=$(date +%Y%m%d%H%M%S)
+    local timestamp=
+    timestamp=$(date +%Y%m%d%H%M%S)
 
     
     mkdir -p "$backup_dir"
+
+    # Save all files to the archive
     tar -czf "${backup_dir}/vsftpd_backup_${timestamp}.tar.gz" \
         /etc/vsftpd || retval=1
  
@@ -309,13 +345,13 @@ call_restore() {
         echo "ERROR: Backup directory $backup_dir does not exist" >&2
         return 1
     fi
-
-    # Пытаемся получить имя файла из JSON
+    
+    # Read the transferred backup name
     if [ -n "$input_json" ]; then
         backup_file=$(echo "$input_json" | jq -r '.backup_name // empty' 2>/dev/null)
     fi
 
-    # Если backup_file не задан, ищем самый свежий бэкап
+    # If the name is not passed, then we take the most recent backup
     if [ -z "$backup_file" ]; then
         echo "No backup_name specified, searching for latest backup..." >&2
         backup_file=$(find "$backup_dir" -name "vsftpd_backup_*.tar.gz" -type f -printf "%T@ %p\n" | sort -n | tail -1 | cut -d' ' -f2-)
@@ -324,7 +360,6 @@ call_restore() {
             return 1
         fi
     else
-        # Проверяем существует ли указанный файл бэкапа
         if [ ! -f "$backup_file" ]; then
             echo "ERROR: Specified backup file $backup_file does not exist" >&2
             return 1
@@ -333,9 +368,10 @@ call_restore() {
 
     echo "Trying to restore from: $backup_file" >&2
 
-    # Остальная часть функции без изменений
-    local temp_dir=$(mktemp -d)
+    local temp_dir=
+    temp_dir=$(mktemp -d)
     
+    # Unzip
     if ! gzip -cd "$backup_file" > "$temp_dir/backup.tar" 2>/dev/null; then
         echo "ERROR: Failed to decompress backup file (gzip error)" >&2
         
@@ -378,7 +414,7 @@ call_restore() {
 
 call_status() {
     local deployment_config_file="/usr/share/alterator-service-vsftpd/deployment-config.json"
-    local config_file="/etc/vsftpd/vsftpd.conf"
+    local config_file="/etc/vsftpd/conf"
     
     if [ ! -f "$deployment_config_file" ] || [ ! -f "$config_file" ]; then
         exit 1
@@ -396,12 +432,14 @@ call_status() {
 
 call_start() {
     local retval=0
+    # Enable with start
     systemctl enable --now vsftpd.service || retval=1
     return $retval
 }
 
 call_stop() {
     local retval=0
+    # Disable with stop
     systemctl disable --now vsftpd.service || retval=1
     return $retval
 }
@@ -412,9 +450,11 @@ call_configure() {
     local keys
     local value=
     input_json="$(read_stdin)"
-
+    
+    # Reading the parameters
     keys=$(echo "$input_json" | jq -r 'keys[]')
-
+    
+     # Fill the array with parameters
     for key in $keys; do
         case "$key" in
             anonymous_enable)
@@ -441,6 +481,26 @@ call_configure() {
                 value=$(get_json_value "$input_json" "$key" ".")
                 [ -n "$value" ] && args+=(pasv_max_port="$value")
                 ;;
+            chroot_local_user)
+                value=$(get_json_value "$input_json" "$key" ".")
+                [ "$value" = "true" ] && args+=(chroot_local_user=YES) || args+=(chroot_local_user=NO)
+                ;;
+            allow_writeable_chroot)
+                value=$(get_json_value "$input_json" "$key" ".")
+                [ "$value" = "true" ] && args+=(allow_writeable_chroot=YES) || args+=(allow_writeable_chroot=NO)
+                ;;
+            userlist_enable)
+                value=$(get_json_value "$input_json" "$key" ".")
+                [ "$value" = "true" ] && args+=(userlist_enable=YES) || args+=(userlist_enable=NO)
+                ;;
+            userlist_deny)
+                value=$(get_json_value "$input_json" "$key" ".")
+                [ "$value" = "true" ] && args+=(userlist_deny=YES) || args+=(userlist_deny=NO)
+                ;;
+            ssl_enable)
+                value=$(get_json_value "$input_json" "$key" ".")
+                [ "$value" = "true" ] && args+=(ssl_enable=YES) || args+=(ssl_enable=NO)
+                ;;
             backup_name)
                 value=$(get_json_value "$input_json" "$key" ".")
                 [ -n "$value" ] && args+=(backup_name="$value")
@@ -451,19 +511,18 @@ call_configure() {
         esac
     done
     
-     backup_config /etc/vsftpd/vsftpd.conf "pre_configure"
+    backup_config /etc/vsftpd/conf "pre_configure"
 
     for setting in "${args[@]}"; do
     key="${setting%=*}"
     value="${setting#*=}"
 
-    if grep -q "^$key=" /etc/vsftpd/vsftpd.conf; then
-        sed -i "s/^$key=.*/$key=$value/" /etc/vsftpd/vsftpd.conf
+    if grep -q "^$key=" /etc/vsftpd/conf; then
+        sed -i "s/^$key=.*/$key=$value/" /etc/vsftpd/conf
     else
-        echo "$key=$value" >> /etc/vsftpd/vsftpd.conf
+        echo "$key=$value" >> /etc/vsftpd/conf
     fi
     done
-    echo "$retval"
 
     systemctl restart vsftpd || {
         echo "ERROR: Failed to restart vsftpd. Restoring backup..."
